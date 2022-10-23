@@ -1,0 +1,99 @@
+email = "satakshi.sharma125@gmail.com"
+password = "gopal$1234."
+bannedWords = ["porn", "fag", "fuck", "bitch"] 
+chatLink = "http://aminoapps.com/p/onv4l9"
+
+from time import sleep, time
+from re import search, IGNORECASE
+from xamino import Client, SubClient
+
+def mainFunction():
+    client = Client()
+    client.login(email=email, password=password)
+    ndcId = client.getFromLink(link=chatLink, key="ndcId")
+    global chatId
+    chatId = client.getFromLink(link=chatLink, key="objectId")
+    subclient = SubClient(ndcId=ndcId, accountInfo=client.accountInfo)
+    processFunction(subclient=subclient)
+
+def processFunction(subclient: SubClient):
+    startTime = time()
+    chatInfo = subclient.getChatInfo(chatId=chatId)
+    try:
+        coHosts = subclient.objects(chatInfo, "coHost")[0]
+        print(f"Co-hosts: {coHosts}")
+    except IndexError:
+        print("You have no co-hosts in this chat")
+        coHosts = []
+    coHosts.append(subclient.object(chatInfo, "uid"))
+    while True:
+        print(f"Running for: {str(time() - startTime).split('.')[0]} seconds")
+        fetchMessages = subclient.getChatMessages(chatId=chatId)
+        chatMessages = subclient.objects(fetchMessages, "content")
+        messageIds = subclient.objects(fetchMessages, "messageId")
+        userId = subclient.objects(fetchMessages, "uid")
+        messageType = subclient.objects(fetchMessages, "type")
+        spamCount, needs2beDeleted = getSpammers(
+        chatMessages=chatMessages, messageIds=messageIds,
+        userId=userId, messageType=messageType, coHosts=coHosts)
+        kickSpammers(subclient=subclient, spamCount=spamCount, need2beDeleted=needs2beDeleted)
+        deleteAdsBanned(subclient=subclient, chatMessages=chatMessages, messageIds=messageIds)
+        sleep(3.5)
+    
+def getSpammers(chatMessages: list, messageIds: list, userId: list, messageType: list, coHosts: list):
+    spamCount = []
+    need2beDeleted = []
+    for i in range(len(chatMessages)):
+        if messageIds[i] not in messageIdList:
+            if userId[i] not in coHosts:
+                if messageType[i] not in [0, 2, 3, 100, 101, 102, 103, 110, 113, 65281, 65282, 65283]:
+                    print(f"Found message: {chatMessages[i]}")
+                    need2beDeleted.append(messageIds[i])
+                    spamCount.append(userId[i])
+                else:
+                    messageIdList.append(messageIds[i])
+
+    return spamCount, need2beDeleted
+
+def kickSpammers(subclient: SubClient, spamCount: list, need2beDeleted: list):
+    spammers = []
+    for i in spamCount:
+        userId = 0
+        for j in spamCount:
+            if i == j:
+                userId += 1
+        if userId > 3:
+            print(f"Found spammer: {i}")
+            spammers.append(i)
+
+    for i in list(set(spammers)):
+        subclient.kickMember(chatId=chatId, userId=i)
+        print(f"Kicked user from chat: {i}")
+    
+    for i in need2beDeleted:
+        subclient.deleteChatMessage(chatId=chatId, messageId=i)
+        print(f"Deleted message: {i}")
+        messageIdList.append(i)
+
+def deleteAdsBanned(subclient: SubClient, chatMessages: list, messageIds: list):
+    pendingDeletion = []
+    for i in range(len(chatMessages)):
+        if chatMessages[i] is not None:
+            bannedWordSearch = search(r'\b(' + '|'.join(bannedWords) + r')\b', chatMessages[i], IGNORECASE)
+            if bannedWordSearch is not None:
+                print(f"Found banned word: {bannedWordSearch.group(0)}")
+                pendingDeletion.append(messageIds[i])
+            adSearch = search(r'\b(https?://\S+)\b', chatMessages[i], IGNORECASE)
+            if adSearch is not None:
+                print(f"Found link: {adSearch.group(0)}")
+                pendingDeletion.append(messageIds[i])
+    for i in pendingDeletion:
+        subclient.deleteChatMessage(chatId=chatId, messageId=i)
+        print(f"Deleted message: {i}")
+        messageIdList.append(i)
+    
+if __name__ == "__main__":
+    if chatLink == "":
+        chatLink = input("Enter chat link: ")
+    messageIdList = []
+    mainFunction()
